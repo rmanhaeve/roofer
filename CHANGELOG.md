@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0-lk.1] - 2026-11-13
+
+1.0.0 with one fix, built for landkit (macOS arm64 only).
+
+## Fixed
+- LoD 2.2 models no longer vary from run to run: the line regulariser's clusters and the snapper's triangulation
+  edges were ordered by heap address.
+
 ## [1.0.0] - 2026-04-20
 
 ## Added

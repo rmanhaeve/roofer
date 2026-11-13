@@ -17,12 +17,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-24.04
-            build_type: Release
-            build_jobs: 4
-          - os: windows-2022
-            build_type: Release
-            build_jobs: 4
+          # landkit's builds: macOS arm64 only
           - os: macos-15
             build_type: Release
             build_jobs: 3
@@ -68,8 +63,8 @@ jobs:
           shopt -s nullglob
           artifacts=(release-artifacts/roofer-conan-*-build)
 
-          if [[ "${#artifacts[@]}" -ne 3 ]]; then
-            echo "Expected 3 platform artifacts, found ${#artifacts[@]}:"
+          if [[ "${#artifacts[@]}" -ne 1 ]]; then
+            echo "Expected 1 platform artifact, found ${#artifacts[@]}:"
             printf '  %s\n' "${artifacts[@]}"
             exit 1
           fi
