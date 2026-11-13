@@ -112,7 +112,7 @@ namespace roofer::linereg {
   }
 
   template <typename ClusterH>
-  DistanceTable<ClusterH>::DistanceTable(std::set<ClusterH>& clusters)
+  DistanceTable<ClusterH>::DistanceTable(ClusterSet<ClusterH>& clusters)
       : clusters(clusters) {
     // compute only half of the distance table, since the other half will be
     // exactly the same
@@ -226,7 +226,7 @@ namespace roofer::linereg {
 
     // perform distance clustering for each angle cluster
     for (auto& aclusterh : angle_clusters) {
-      std::set<DistClusterH> dclusters;
+      ClusterSet<DistClusterH> dclusters;
       for (auto& line : aclusterh->lines) {
         auto dclusterh = std::make_shared<DistCluster>();
         dclusterh->value = line->segment;

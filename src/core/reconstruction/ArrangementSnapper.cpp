@@ -29,6 +29,11 @@
 #include <CGAL/Constrained_Delaunay_triangulation_2.h>
 #include <CGAL/Triangulation_face_base_with_info_2.h>
 #include <CGAL/Triangulation_vertex_base_with_info_2.h>
+#include <algorithm>
+#include <iterator>
+#include <unordered_set>
+#include <utility>
+#include <vector>
 
 namespace roofer::reconstruction {
 
@@ -58,7 +63,31 @@ namespace roofer::reconstruction {
     typedef T::Face_handle Face_handle;
     typedef std::pair<Face_handle, int> Edge;
 
-    typedef std::unordered_map<Vertex_handle, FaceInfo*> ConstraintMap;
+    // The constraints to restore in the order they were found: they are
+    // restored in this order, and an unordered_map keyed by vertex handle
+    // would restore them in an order that follows heap addresses.
+    typedef std::vector<std::pair<Vertex_handle, FaceInfo*>> ConstraintMap;
+
+    // The triangulation's edges (all, or only the constrained ones), each
+    // once, in the order of its faces and as seen from the face met first.
+    // CGAL's edge iterators give each edge from whichever of its two faces
+    // lies at the lower address, so their order and the edges' direction
+    // would follow where the allocator put the faces.
+    std::vector<Edge> edges_in_face_order(T& tri, bool constrained_only) {
+      std::vector<Edge> edges;
+      std::unordered_set<Face_handle> seen;  // only asked what it holds
+      for (auto fit = tri.finite_faces_begin(); fit != tri.finite_faces_end();
+           ++fit) {
+        Face_handle f = fit;
+        for (int i = 0; i < 3; ++i) {
+          if (seen.count(f->neighbor(i))) continue;  // given from that face
+          if (!constrained_only || tri.is_constrained(Edge(f, i)))
+            edges.emplace_back(f, i);
+        }
+        seen.insert(f);
+      }
+      return edges;
+    }
 
     // tri_util::CDT triangulate_polygon(LinearRing& poly, float
     // dupe_threshold_exp=3) {
@@ -116,7 +145,14 @@ namespace roofer::reconstruction {
 
             // check if edge is not one that we will collapse
             if (vother != vexcept1 && vother != vexcept2) {
-              constraints_to_restore[vother] = face_ccw->info();
+              auto found = std::find_if(
+                  constraints_to_restore.begin(), constraints_to_restore.end(),
+                  [&](const auto& c) { return c.first == vother; });
+              if (found != constraints_to_restore.end()) {
+                found->second = face_ccw->info();
+              } else {
+                constraints_to_restore.emplace_back(vother, face_ccw->info());
+              }
             }
             // to_remove.push_back(*ec);
           }
@@ -342,11 +378,10 @@ namespace roofer::reconstruction {
         bool found_short_edge;
         do {
           found_short_edge = false;
-          for (Finite_edges_iterator ceit = tri.finite_edges_begin();
-               ceit != tri.finite_edges_end(); ++ceit) {
-            if (tri.is_constrained(*ceit)) {
-              auto v1 = ceit->first->vertex(tri.cw(ceit->second));
-              auto v2 = ceit->first->vertex(tri.ccw(ceit->second));
+          for (auto& edge : edges_in_face_order(tri, true)) {
+            {  // edge is constrained
+              auto v1 = edge.first->vertex(tri.cw(edge.second));
+              auto v2 = edge.first->vertex(tri.ccw(edge.second));
               auto& p1 = v1->point();
               auto& p2 = v2->point();
 
@@ -478,7 +513,7 @@ namespace roofer::reconstruction {
           }
         }
 
-        for (auto ce : tri.constrained_edges()) {
+        for (auto ce : edges_in_face_order(tri, true)) {
           auto v1 = ce.first->vertex(tri.cw(ce.second));
           auto v2 = ce.first->vertex(tri.ccw(ce.second));
           auto& p1_ = v1->point();
@@ -504,7 +539,9 @@ namespace roofer::reconstruction {
             // std::cout << "poly size: " << poly.size() << std::endl;
             tri_util::CDT cdt = tri_util::create_from_polygon(poly);
 
-            std::unordered_map<Arrangement_2::Face_handle, float>
+            // in the order first found, so that among faces that overlap as
+            // much the first is picked, not the one that hashes first
+            std::vector<std::pair<Arrangement_2::Face_handle, float>>
                 canidate_faces;
             for (tri_util::CDT::Finite_faces_iterator fit =
                      cdt.finite_faces_begin();
@@ -522,8 +559,15 @@ namespace roofer::reconstruction {
               if (auto f = std::get_if<Face_const_handle>(
                       &obj)) {  // located inside a face
                 // arrFace->data() = (*f)->data();
-                canidate_faces[arr.non_const_handle(*f)] +=
-                    cdt.triangle(fit).area();
+                auto fh = arr.non_const_handle(*f);
+                auto found =
+                    std::find_if(canidate_faces.begin(), canidate_faces.end(),
+                                 [&](const auto& c) { return c.first == fh; });
+                if (found == canidate_faces.end()) {
+                  canidate_faces.emplace_back(fh, 0.f);
+                  found = std::prev(canidate_faces.end());
+                }
+                found->second += cdt.triangle(fit).area();
               }
               // break;
             }

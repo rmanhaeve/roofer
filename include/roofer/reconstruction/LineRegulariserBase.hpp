@@ -26,8 +26,11 @@
 #include <CGAL/Polygon_2.h>
 #include <CGAL/Polygon_with_holes_2.h>
 
+#include <atomic>
 #include <boost/heap/fibonacci_heap.hpp>
+#include <cstddef>
 #include <roofer/common/datastructures.hpp>
+#include <set>
 
 namespace roofer::linereg {
   using K = CGAL::Exact_predicates_exact_constructions_kernel;
@@ -43,14 +46,34 @@ namespace roofer::linereg {
 
   struct linetype;
 
+  // Clusters are numbered as they are made, so that sets of them can be
+  // ordered by when they were made rather than by where the allocator put
+  // them (std::less on a shared_ptr compares addresses, which differ from run
+  // to run and made the regularised lines, and so the models, vary). Only
+  // clusters of one building, made by one thread one after the other, are
+  // ever compared, so a counter shared by all threads keeps their order.
+  inline std::atomic<std::size_t> cluster_counter{0};
+
   template <typename T>
   struct Cluster {
     T value;
     bool has_intersection_line;
     std::vector<linetype*> lines;
+    const std::size_t order =
+        cluster_counter.fetch_add(1, std::memory_order_relaxed);
     virtual double distance(Cluster<T>* other_cluster) = 0;
     virtual void calc_mean_value() = 0;
   };
+
+  // Orders cluster handles by when their clusters were made.
+  struct ClusterOrder {
+    template <typename H>
+    bool operator()(const H& a, const H& b) const {
+      return a->order < b->order;
+    }
+  };
+  template <typename ClusterH>
+  using ClusterSet = std::set<ClusterH, ClusterOrder>;
   struct AngleCluster : public Cluster<double> {
     double distance(Cluster<double>* other_cluster) override;
     void calc_mean_value() override;
@@ -103,9 +126,10 @@ namespace roofer::linereg {
 
     Cluster2DistPairMap cluster_to_dist_pairs;
     DistanceHeap distances;
-    std::set<ClusterH>& clusters;
+    ClusterSet<ClusterH>& clusters;
 
-    DistanceTable(std::set<ClusterH>& clusters);  // computes initial distances
+    DistanceTable(
+        ClusterSet<ClusterH>& clusters);  // computes initial distances
     void merge(
         ClusterH lhs,
         ClusterH rhs);  // merges two clusters, then removes one from the
@@ -166,8 +190,8 @@ namespace roofer::linereg {
     double angle_threshold, dist_threshold;
 
     std::unordered_map<size_t, SegmentVec> segments;
-    std::set<AngleClusterH> angle_clusters;
-    std::set<DistClusterH> dist_clusters;
+    ClusterSet<AngleClusterH> angle_clusters;
+    ClusterSet<DistClusterH> dist_clusters;
 
     LineRegulariser() = default;
 
