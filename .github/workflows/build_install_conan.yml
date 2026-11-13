@@ -30,9 +30,9 @@ jobs:
       use_spdlog: true
       use_val3dity: false
       build_bindings: false
-      build_testing: true
+      build_testing: false  # its test data (FetchContent) answers 403 outside 3DGI
       build_doc_helper: false
-      run_tests: true
+      run_tests: false
       artifact_suffix: build
 
   release:
